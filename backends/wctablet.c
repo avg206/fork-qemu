@@ -48,6 +48,10 @@ do {} while (0)
 #define WC_BUSY_WITH_CODES 3
 #define WC_WAITING_STATE 2
 
+#define WC_L7(n) ((n) & 127)
+#define WC_M7(n) (((n) >> 7) & 127)
+#define WC_H2(n) ((n) >> 14)
+
 // Avaliable commands
 uint8_t wctablet_commands[WC_COMMANDS_COUNT][6] = {
     {0x0a, 0x53, 0x50, 0x0a, 0},         // \nSP\n
@@ -134,13 +138,13 @@ static void wctablet_event(void *opaque, int x,
     if (save->state == WC_WAITING_STATE) {
         // DPRINTF("x= %d; y= %d; buttons=%x\n", x, y, buttons_state);
 
-        codes[0] = codes[0] | (x >> 14);
-        codes[1] = codes[1] | ((x >> 7) & (127));
-        codes[2] = codes[2] | (x & (127));
+        codes[0] = codes[0] | WC_H2(x);
+        codes[1] = codes[1] | WC_M7(x);
+        codes[2] = codes[2] | WC_L7(x);
 
-        codes[3] = codes[3] | (y >> 14);
-        codes[4] = codes[4] | ((y >> 7) & (127));
-        codes[5] = codes[5] | (y & (127));
+        codes[3] = codes[3] | WC_H2(y);
+        codes[4] = codes[4] | WC_M7(y);
+        codes[5] = codes[5] | WC_L7(y);
 
         memcpy(save->codes, codes, 7);
         save->command_length = 7;
