@@ -33,7 +33,7 @@
 
 
 #define DEBUG_WCTABLET_MOUSE
- 
+
 #ifdef DEBUG_WCTABLET_MOUSE
 #define DPRINTF(fmt, ...) \
 do { fprintf(stderr, "wctablet: " fmt , ## __VA_ARGS__); } while (0)
@@ -130,10 +130,10 @@ static void wctablet_event(void *opaque, int x,
     CharDriverState *chr = (CharDriverState *) opaque;
     wctablet_save *save = (wctablet_save *) chr->opaque;
     uint8_t codes[8] = { 0xe0, 0, 0, 0, 0, 0, 0 };
-    
+
     if (save->state == WAITING_STATE) {
         // DPRINTF("x= %d; y= %d; buttons=%x\n", x, y, buttons_state);
-    
+
         codes[0] = codes[0] | (x >> 14);
         codes[1] = codes[1] | ((x >> 7) & (127));
         codes[2] = codes[2] | (x & (127));
@@ -144,7 +144,7 @@ static void wctablet_event(void *opaque, int x,
 
         memcpy(save->codes, codes, 7);
         save->command_length = 7;
-    
+
         save->state = BUSY_WITH_CODES;
         save->command_index = 0;
     }
@@ -183,27 +183,27 @@ static int wctablet_chr_write (struct CharDriverState *s,
     if (c == 0x40) {
         return len;
     }
-    
+
     save->query[save->query_index++] = c;
 
     // DPRINTF("Receive: %.2x\n", c);
-    
+
     int comm = wctablet_check_command(save->query, save->query_index);
-    
+
     if (comm != -1) {
         if (comm == 1) {
             save->command_string = WC_MODEL_STRING;
         }
-        
+
         if (comm == 3) {
             save->command_string = WC_CONFIG_STRING;
         }
-    
+
         save->command_length = sizeof(save->command_string);
-    
+
         save->state = BUSY_STATE;
         save->command_index = 0;
-    
+
         // DPRINTF("-------- Command: %s\n", wctablet_commands_names[comm]);
         save->query_index = 0;
     }
@@ -238,13 +238,13 @@ static CharDriverState *qemu_chr_open_wctablet(const char *id,
     /* create a new QEMU's timer with wctablet_handler() as timeout handler. */
     save->transmit_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                        (QEMUTimerCB *) wctablet_handler, chr);
-    
+
     /* calculate the transmit_time for 1200 bauds transmission */
     save->transmit_time = (NANOSECONDS_PER_SECOND / 500) * 10; /* 1200 bauds */
-    
+
     timer_mod(save->transmit_timer,
               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + save->transmit_time);
-    
+
 
     /* init state machine */
     save->query_index = 0;
