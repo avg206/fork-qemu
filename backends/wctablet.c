@@ -44,9 +44,9 @@ do {} while (0)
 
 #define WC_COMMANDS_COUNT 20
 
-#define BUSY_STATE 1
-#define BUSY_WITH_CODES 3
-#define WAITING_STATE 2
+#define WC_BUSY_STATE 1
+#define WC_BUSY_WITH_CODES 3
+#define WC_WAITING_STATE 2
 
 // Avaliable commands
 uint8_t wctablet_commands[WC_COMMANDS_COUNT][6] = {
@@ -131,7 +131,7 @@ static void wctablet_event(void *opaque, int x,
     wctablet_save *save = (wctablet_save *) chr->opaque;
     uint8_t codes[8] = { 0xe0, 0, 0, 0, 0, 0, 0 };
 
-    if (save->state == WAITING_STATE) {
+    if (save->state == WC_WAITING_STATE) {
         // DPRINTF("x= %d; y= %d; buttons=%x\n", x, y, buttons_state);
 
         codes[0] = codes[0] | (x >> 14);
@@ -145,7 +145,7 @@ static void wctablet_event(void *opaque, int x,
         memcpy(save->codes, codes, 7);
         save->command_length = 7;
 
-        save->state = BUSY_WITH_CODES;
+        save->state = WC_BUSY_WITH_CODES;
         save->command_index = 0;
     }
 }
@@ -160,10 +160,10 @@ static void wctablet_handler(void *opaque)
         int a = save->command_index++;
 
         if (save->command_index >= save->command_length) {
-            save->state = WAITING_STATE;
+            save->state = WC_WAITING_STATE;
         }
 
-        uint8_t byte = (save->state == BUSY_WITH_CODES)
+        uint8_t byte = (save->state == WC_BUSY_WITH_CODES)
             ? (uint8_t) save->codes[a]
             : (uint8_t) save->command_string[a];
 
@@ -201,7 +201,7 @@ static int wctablet_chr_write (struct CharDriverState *s,
 
         save->command_length = sizeof(save->command_string);
 
-        save->state = BUSY_STATE;
+        save->state = WC_BUSY_STATE;
         save->command_index = 0;
 
         // DPRINTF("-------- Command: %s\n", wctablet_commands_names[comm]);
@@ -251,7 +251,7 @@ static CharDriverState *qemu_chr_open_wctablet(const char *id,
     save->command_index = 1;
     save->command_length = 0;
     save->command_string = (uint8_t *) "";
-    save->state = BUSY_STATE;
+    save->state = WC_BUSY_STATE;
     /* keep address of wctablet_save */
 
     chr->opaque = save;
