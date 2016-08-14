@@ -64,7 +64,7 @@ uint8_t wctablet_commands[WC_COMMANDS_COUNT][6] = {
     {0x49, 0x54, 0x32, 0x0a, 0},         // IT2\n
     {0x53, 0x55, 0x33, 0x0a, 0},         // SU3\n
     {0x50, 0x48, 0x31, 0x0a, 0},         // PH1\n
-    {0x53, 0x54, 0x0a, 0},               // ST\n
+    {0x0d, 0x53, 0x54, 0x0a, 0},         // \rST\n
     {0x53, 0x50, 0x0d, 0},               // SP\r
     {0x54, 0x45, 0x0d, 0},               // TE\r
     {0x53, 0x50, 0x0a, 0},               // SP\n
@@ -84,7 +84,7 @@ char wctablet_commands_names[WC_COMMANDS_COUNT][7] = {
     "IT2\\n",
     "SU3\\n",
     "PH1\\n",
-    "ST\\n",
+    "\\rST\\n",
     "SP\\r",
     "TE\\r",
     "SP\\n",
@@ -93,8 +93,27 @@ char wctablet_commands_names[WC_COMMANDS_COUNT][7] = {
 };
 
 // Model string and config string
-uint8_t *WC_MODEL_STRING = (uint8_t *) "CT-0045R,V1.3-5";
+uint8_t *WC_MODEL_STRING = (uint8_t *) "~#CT-0045R00,V1.3-5,";
+size_t WC_MODEL_STRING_LENGTH = 20;
 uint8_t *WC_CONFIG_STRING = (uint8_t *) "96,N,8,0";
+size_t WC_CONFIG_STRING_LENGTH = 8;
+uint8_t WC_FULL_CONFIG_STRING[61] = {
+    0x5c, 0x39, 0x36, 0x2c, 0x4e, 0x2c, 0x38, 0x2c,
+    0x31, 0x28, 0x01, 0x24, 0x57, 0x41, 0x43, 0x30,
+    0x30, 0x34, 0x35, 0x5c, 0x5c, 0x50, 0x45, 0x4e, 0x5c,
+    0x57, 0x41, 0x43, 0x30, 0x30, 0x30, 0x30, 0x5c,
+    0x54, 0x61, 0x62, 0x6c, 0x65, 0x74, 0x0d, 0x0a,
+    0x43, 0x54, 0x2d, 0x30, 0x30, 0x34, 0x35, 0x52,
+    0x2c, 0x56, 0x31, 0x2e, 0x33, 0x2d, 0x35, 0x0d,
+    0x0a, 0x45, 0x37, 0x29
+};
+size_t WC_FULL_CONFIG_STRING_LENGTH = 61;
+int count = 0;
+int FIRST_SPEAD_1 = 7000 * 1000;
+int FIRST_SPEAD_2 = 8000 * 1000;
+int COMMON_SPEAD = 900 * 1000;
+
+
 
 // This structure is used to save private info for Wacom Tablet.
 typedef struct wctablet_save {
@@ -159,6 +178,8 @@ static void wctablet_handler(void *opaque)
     CharDriverState *chr = (CharDriverState *) opaque;
     wctablet_save *save = (wctablet_save *) chr->opaque;
 
+    // DPRINTF("-------- Can Write: %d\n", qemu_chr_be_can_write(chr));
+
     if (qemu_chr_be_can_write(chr) > 0 &&
         save->command_index < save->command_length) {
         int a = save->command_index++;
@@ -171,8 +192,21 @@ static void wctablet_handler(void *opaque)
             ? (uint8_t) save->codes[a]
             : (uint8_t) save->command_string[a];
 
+        DPRINTF("-------- Write: %2x %2d %2d\n", byte, save->command_index, save->command_length);
+
         qemu_chr_be_write(chr, &byte, 1);
     }
+
+    if (save->transmit_time == FIRST_SPEAD_1) {
+        save->transmit_time = FIRST_SPEAD_2;
+    } else if (save->transmit_time == FIRST_SPEAD_2) {
+        save->transmit_time = FIRST_SPEAD_1;
+    }
+
+    if (save->command_index >= save->command_length && save->command_length == WC_FULL_CONFIG_STRING_LENGTH) {
+        save->transmit_time = COMMON_SPEAD;
+    }
+
 
     timer_mod(save->transmit_timer,
               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + save->transmit_time);
@@ -190,25 +224,33 @@ static int wctablet_chr_write (struct CharDriverState *s,
 
     save->query[save->query_index++] = c;
 
-    // DPRINTF("Receive: %.2x\n", c);
+    DPRINTF("Receive: %.2x\n", c);
 
     int comm = wctablet_check_command(save->query, save->query_index);
 
+    if (comm == 1) {
+        count++;
+    }
+
     if (comm != -1) {
-        if (comm == 1) {
-            save->command_string = WC_MODEL_STRING;
+        if (save->command_index >= save->command_length && count == 1) {
+            if (comm == 1) {
+                save->command_string = WC_MODEL_STRING;
+                save->command_length = WC_MODEL_STRING_LENGTH;
+            }
+
+            if (comm == 3) {
+                save->command_string = WC_CONFIG_STRING;
+                save->command_length = WC_CONFIG_STRING_LENGTH;
+            }
+            
+
+            save->state = WC_BUSY_STATE;
+            save->command_index = 0;
+
+            DPRINTF("-------- Command: %s %d\n", save->command_string, save->command_length);
         }
 
-        if (comm == 3) {
-            save->command_string = WC_CONFIG_STRING;
-        }
-
-        save->command_length = sizeof(save->command_string);
-
-        save->state = WC_BUSY_STATE;
-        save->command_index = 0;
-
-        // DPRINTF("-------- Command: %s\n", wctablet_commands_names[comm]);
         save->query_index = 0;
     }
 
@@ -244,7 +286,7 @@ static CharDriverState *qemu_chr_open_wctablet(const char *id,
                                        (QEMUTimerCB *) wctablet_handler, chr);
 
     /* calculate the transmit_time for 1200 bauds transmission */
-    save->transmit_time = (NANOSECONDS_PER_SECOND / 500) * 10; /* 1200 bauds */
+    save->transmit_time = FIRST_SPEAD_1; // (NANOSECONDS_PER_SECOND / 500) * 10; /* 1200 bauds */
 
     timer_mod(save->transmit_timer,
               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + save->transmit_time);
@@ -252,9 +294,9 @@ static CharDriverState *qemu_chr_open_wctablet(const char *id,
 
     /* init state machine */
     save->query_index = 0;
-    save->command_index = 1;
-    save->command_length = 0;
-    save->command_string = (uint8_t *) "";
+    save->command_index = 0;
+    save->command_length = WC_FULL_CONFIG_STRING_LENGTH;
+    save->command_string = WC_FULL_CONFIG_STRING;
     save->state = WC_BUSY_STATE;
     /* keep address of wctablet_save */
 
