@@ -1182,7 +1182,9 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 
     tcg_func_start(&tcg_ctx);
 
+    tcg_ctx.cpu = ENV_GET_CPU(env);
     gen_intermediate_code(env, tb);
+    tcg_ctx.cpu = NULL;
 
     trace_translate_block(tb, tb->pc, tb->tc_ptr);
 
@@ -1661,15 +1663,50 @@ void tb_flush_jmp_cache(CPUState *cpu, target_ulong addr)
            TB_JMP_PAGE_SIZE * sizeof(TranslationBlock *));
 }
 
+static void print_qht_statistics(FILE *f, fprintf_function cpu_fprintf,
+                                 struct qht_stats hst)
+{
+    uint32_t hgram_opts;
+    size_t hgram_bins;
+    char *hgram;
+
+    if (!hst.head_buckets) {
+        return;
+    }
+    cpu_fprintf(f, "TB hash buckets     %zu/%zu (%0.2f%% head buckets used)\n",
+                hst.used_head_buckets, hst.head_buckets,
+                (double)hst.used_head_buckets / hst.head_buckets * 100);
+
+    hgram_opts =  QDIST_PR_BORDER | QDIST_PR_LABELS;
+    hgram_opts |= QDIST_PR_100X   | QDIST_PR_PERCENT;
+    if (qdist_xmax(&hst.occupancy) - qdist_xmin(&hst.occupancy) == 1) {
+        hgram_opts |= QDIST_PR_NODECIMAL;
+    }
+    hgram = qdist_pr(&hst.occupancy, 10, hgram_opts);
+    cpu_fprintf(f, "TB hash occupancy   %0.2f%% avg chain occ. Histogram: %s\n",
+                qdist_avg(&hst.occupancy) * 100, hgram);
+    g_free(hgram);
+
+    hgram_opts = QDIST_PR_BORDER | QDIST_PR_LABELS;
+    hgram_bins = qdist_xmax(&hst.chain) - qdist_xmin(&hst.chain);
+    if (hgram_bins > 10) {
+        hgram_bins = 10;
+    } else {
+        hgram_bins = 0;
+        hgram_opts |= QDIST_PR_NODECIMAL | QDIST_PR_NOBINRANGE;
+    }
+    hgram = qdist_pr(&hst.chain, hgram_bins, hgram_opts);
+    cpu_fprintf(f, "TB hash avg chain   %0.3f buckets. Histogram: %s\n",
+                qdist_avg(&hst.chain), hgram);
+    g_free(hgram);
+}
+
 void dump_exec_info(FILE *f, fprintf_function cpu_fprintf)
 {
     int i, target_code_size, max_target_code_size;
     int direct_jmp_count, direct_jmp2_count, cross_page;
     TranslationBlock *tb;
     struct qht_stats hst;
-    uint32_t hgram_opts;
-    size_t hgram_bins;
-    char *hgram;
 
     target_code_size = 0;
     max_target_code_size = 0;
@@ -1722,34 +1759,7 @@ void dump_exec_info(FILE *f, fprintf_function cpu_fprintf)
                         tcg_ctx.tb_ctx.nb_tbs : 0);
 
     qht_statistics_init(&tcg_ctx.tb_ctx.htable, &hst);
-
-    cpu_fprintf(f, "TB hash buckets     %zu/%zu (%0.2f%% head buckets used)\n",
-                hst.used_head_buckets, hst.head_buckets,
-                (double)hst.used_head_buckets / hst.head_buckets * 100);
-
-    hgram_opts =  QDIST_PR_BORDER | QDIST_PR_LABELS;
-    hgram_opts |= QDIST_PR_100X   | QDIST_PR_PERCENT;
-    if (qdist_xmax(&hst.occupancy) - qdist_xmin(&hst.occupancy) == 1) {
-        hgram_opts |= QDIST_PR_NODECIMAL;
-    }
-    hgram = qdist_pr(&hst.occupancy, 10, hgram_opts);
-    cpu_fprintf(f, "TB hash occupancy   %0.2f%% avg chain occ. Histogram: %s\n",
-                qdist_avg(&hst.occupancy) * 100, hgram);
-    g_free(hgram);
-
-    hgram_opts = QDIST_PR_BORDER | QDIST_PR_LABELS;
-    hgram_bins = qdist_xmax(&hst.chain) - qdist_xmin(&hst.chain);
-    if (hgram_bins > 10) {
-        hgram_bins = 10;
-    } else {
-        hgram_bins = 0;
-        hgram_opts |= QDIST_PR_NODECIMAL | QDIST_PR_NOBINRANGE;
-    }
-    hgram = qdist_pr(&hst.chain, hgram_bins, hgram_opts);
-    cpu_fprintf(f, "TB hash avg chain   %0.3f buckets. Histogram: %s\n",
-                qdist_avg(&hst.chain), hgram);
-    g_free(hgram);
-
+    print_qht_statistics(f, cpu_fprintf, hst);
     qht_statistics_destroy(&hst);
 
     cpu_fprintf(f, "\nStatistics:\n");
@@ -1998,6 +2008,7 @@ int page_check_range(target_ulong start, target_ulong len, int flags)
 int page_unprotect(target_ulong address, uintptr_t pc)
 {
     unsigned int prot;
+    bool current_tb_invalidated;
     PageDesc *p;
     target_ulong host_start, host_end, addr;
 
@@ -2019,6 +2030,7 @@ int page_unprotect(target_ulong address, uintptr_t pc)
         host_end = host_start + qemu_host_page_size;
 
         prot = 0;
+        current_tb_invalidated = false;
         for (addr = host_start ; addr < host_end ; addr += TARGET_PAGE_SIZE) {
             p = page_find(addr >> TARGET_PAGE_BITS);
             p->flags |= PAGE_WRITE;
@@ -2026,10 +2038,7 @@ int page_unprotect(target_ulong address, uintptr_t pc)
 
             /* and since the content will be modified, we must invalidate
                the corresponding translated code. */
-            if (tb_invalidate_phys_page(addr, pc)) {
-                mmap_unlock();
-                return 2;
-            }
+            current_tb_invalidated |= tb_invalidate_phys_page(addr, pc);
 #ifdef DEBUG_TB_CHECK
             tb_invalidate_check(addr);
 #endif
@@ -2038,7 +2047,8 @@ int page_unprotect(target_ulong address, uintptr_t pc)
                  prot & PAGE_BITS);
 
         mmap_unlock();
-        return 1;
+        /* If current TB was invalidated return to main loop */
+        return current_tb_invalidated ? 2 : 1;
     }
     mmap_unlock();
     return 0;

@@ -418,11 +418,11 @@ static void process_incoming_migration_co(void *opaque)
 
 void migration_fd_process_incoming(QEMUFile *f)
 {
-    Coroutine *co = qemu_coroutine_create(process_incoming_migration_co);
+    Coroutine *co = qemu_coroutine_create(process_incoming_migration_co, f);
 
     migrate_decompress_threads_create();
     qemu_file_set_blocking(f, false);
-    qemu_coroutine_enter(co, f);
+    qemu_coroutine_enter(co);
 }
 
 
@@ -1384,7 +1384,7 @@ static void *source_return_path_thread(void *opaque)
         /* OK, we have the message and the data */
         switch (header_type) {
         case MIG_RP_MSG_SHUT:
-            sibling_error = be32_to_cpup((uint32_t *)buf);
+            sibling_error = ldl_be_p(buf);
             trace_source_return_path_thread_shut(sibling_error);
             if (sibling_error) {
                 error_report("RP: Sibling indicated error %d", sibling_error);
@@ -1398,13 +1398,13 @@ static void *source_return_path_thread(void *opaque)
             goto out;
 
         case MIG_RP_MSG_PONG:
-            tmp32 = be32_to_cpup((uint32_t *)buf);
+            tmp32 = ldl_be_p(buf);
             trace_source_return_path_thread_pong(tmp32);
             break;
 
         case MIG_RP_MSG_REQ_PAGES:
-            start = be64_to_cpup((uint64_t *)buf);
-            len = be32_to_cpup((uint32_t *)(buf + 8));
+            start = ldq_be_p(buf);
+            len = ldl_be_p(buf + 8);
             migrate_handle_rp_req_pages(ms, NULL, start, len);
             break;
 
@@ -1412,8 +1412,8 @@ static void *source_return_path_thread(void *opaque)
             expected_len = 12 + 1; /* header + termination */
 
             if (header_len >= expected_len) {
-                start = be64_to_cpup((uint64_t *)buf);
-                len = be32_to_cpup((uint32_t *)(buf + 8));
+                start = ldq_be_p(buf);
+                len = ldl_be_p(buf + 8);
                 /* Now we expect an idstr */
                 tmp32 = buf[12]; /* Length of the following idstr */
                 buf[13 + tmp32] = '\0';
@@ -1837,6 +1837,10 @@ static void *migration_thread(void *opaque)
     } else {
         if (old_vm_running && !entered_postcopy) {
             vm_start();
+        } else {
+            if (runstate_check(RUN_STATE_FINISH_MIGRATE)) {
+                runstate_set(RUN_STATE_POSTMIGRATE);
+            }
         }
     }
     qemu_bh_schedule(s->cleanup_bh);

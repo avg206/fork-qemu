@@ -2592,6 +2592,9 @@
 #
 # @queues: #optional number of queues to be created for multiqueue capable tap
 #
+# @poll-us: #optional maximum number of microseconds that could
+# be spent on busy polling for tap (since 2.7)
+#
 # Since 1.2
 ##
 { 'struct': 'NetdevTapOptions',
@@ -2608,7 +2611,8 @@
     '*vhostfd':    'str',
     '*vhostfds':   'str',
     '*vhostforce': 'bool',
-    '*queues':     'uint32'} }
+    '*queues':     'uint32',
+    '*poll-us':    'uint32'} }
 
 ##
 # @NetdevSocketOptions
@@ -2805,16 +2809,32 @@
     '*queues':        'int' } }
 
 ##
-# @NetClientOptions
+# @NetClientDriver
 #
-# A discriminated record of network device traits.
+# Available netdev drivers.
+#
+# Since 2.7
+##
+{ 'enum': 'NetClientDriver',
+  'data': [ 'none', 'nic', 'user', 'tap', 'l2tpv3', 'socket', 'vde', 'dump',
+            'bridge', 'hubport', 'netmap', 'vhost-user' ] }
+
+##
+# @Netdev
+#
+# Captures the configuration of a network device.
+#
+# @id: identifier for monitor commands.
+#
+# @type: Specify the driver used for interpreting remaining arguments.
 #
 # Since 1.2
 #
 # 'l2tpv3' - since 2.1
-#
 ##
-{ 'union': 'NetClientOptions',
+{ 'union': 'Netdev',
+  'base': { 'id': 'str', 'type': 'NetClientDriver' },
+  'discriminator': 'type',
   'data': {
     'none':     'NetdevNoneOptions',
     'nic':      'NetLegacyNicOptions',
@@ -2849,23 +2869,28 @@
     '*vlan': 'int32',
     '*id':   'str',
     '*name': 'str',
-    'opts':  'NetClientOptions' } }
+    'opts':  'NetLegacyOptions' } }
 
 ##
-# @Netdev
+# @NetLegacyOptions
 #
-# Captures the configuration of a network device.
-#
-# @id: identifier for monitor commands.
-#
-# @opts: device type specific properties
+# Like Netdev, but for use only by the legacy command line options
 #
 # Since 1.2
 ##
-{ 'struct': 'Netdev',
+{ 'union': 'NetLegacyOptions',
   'data': {
-    'id':   'str',
-    'opts': 'NetClientOptions' } }
+    'none':     'NetdevNoneOptions',
+    'nic':      'NetLegacyNicOptions',
+    'user':     'NetdevUserOptions',
+    'tap':      'NetdevTapOptions',
+    'l2tpv3':   'NetdevL2TPv3Options',
+    'socket':   'NetdevSocketOptions',
+    'vde':      'NetdevVdeOptions',
+    'dump':     'NetdevDumpOptions',
+    'bridge':   'NetdevBridgeOptions',
+    'netmap':   'NetdevNetmapOptions',
+    'vhost-user': 'NetdevVhostUserOptions' } }
 
 ##
 # @NetFilterDirection
@@ -2986,11 +3011,14 @@
 # @cpu-max: maximum number of CPUs supported by the machine type
 #           (since 1.5.0)
 #
+# @hotpluggable-cpus: cpu hotplug via -device is supported (since 2.7.0)
+#
 # Since: 1.2.0
 ##
 { 'struct': 'MachineInfo',
   'data': { 'name': 'str', '*alias': 'str',
-            '*is-default': 'bool', 'cpu-max': 'int' } }
+            '*is-default': 'bool', 'cpu-max': 'int',
+            'hotpluggable-cpus': 'bool'} }
 
 ##
 # @query-machines:
@@ -4080,8 +4108,9 @@
 ## @ACPISlotType
 #
 # @DIMM: memory slot
+# @CPU: logical CPU slot (since 2.7)
 #
-{ 'enum': 'ACPISlotType', 'data': [ 'DIMM' ] }
+{ 'enum': 'ACPISlotType', 'data': [ 'DIMM', 'CPU' ] }
 
 ## @ACPIOSTInfo
 #
@@ -4254,3 +4283,59 @@
 # Since: 2.6
 ##
 { 'command': 'query-gic-capabilities', 'returns': ['GICCapability'] }
+
+##
+# CpuInstanceProperties
+#
+# List of properties to be used for hotplugging a CPU instance,
+# it should be passed by management with device_add command when
+# a CPU is being hotplugged.
+#
+# Note: currently there are 4 properties that could be present
+# but management should be prepared to pass through other
+# properties with device_add command to allow for future
+# interface extension. This also requires the filed names to be kept in
+# sync with the properties passed to -device/device_add.
+#
+# @node-id: #optional NUMA node ID the CPU belongs to
+# @socket-id: #optional socket number within node/board the CPU belongs to
+# @core-id: #optional core number within socket the CPU belongs to
+# @thread-id: #optional thread number within core the CPU belongs to
+#
+# Since: 2.7
+##
+{ 'struct': 'CpuInstanceProperties',
+  'data': { '*node-id': 'int',
+            '*socket-id': 'int',
+            '*core-id': 'int',
+            '*thread-id': 'int'
+  }
+}
+
+##
+# @HotpluggableCPU
+#
+# @type: CPU object type for usage with device_add command
+# @props: list of properties to be used for hotplugging CPU
+# @vcpus-count: number of logical VCPU threads @HotpluggableCPU provides
+# @qom-path: #optional link to existing CPU object if CPU is present or
+#            omitted if CPU is not present.
+#
+# Since: 2.7
+##
+{ 'struct': 'HotpluggableCPU',
+  'data': { 'type': 'str',
+            'vcpus-count': 'int',
+            'props': 'CpuInstanceProperties',
+            '*qom-path': 'str'
+          }
+}
+
+##
+# @query-hotpluggable-cpus
+#
+# Returns: a list of HotpluggableCPU objects.
+#
+# Since: 2.7
+##
+{ 'command': 'query-hotpluggable-cpus', 'returns': ['HotpluggableCPU'] }

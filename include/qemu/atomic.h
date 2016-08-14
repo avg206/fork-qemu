@@ -12,13 +12,53 @@
  * atomic primitive is meant to provide.
  */
 
-#ifndef __QEMU_ATOMIC_H
-#define __QEMU_ATOMIC_H 1
-
-
+#ifndef QEMU_ATOMIC_H
+#define QEMU_ATOMIC_H
 
 /* Compiler barrier */
 #define barrier()   ({ asm volatile("" ::: "memory"); (void)0; })
+
+/* The variable that receives the old value of an atomically-accessed
+ * variable must be non-qualified, because atomic builtins return values
+ * through a pointer-type argument as in __atomic_load(&var, &old, MODEL).
+ *
+ * This macro has to handle types smaller than int manually, because of
+ * implicit promotion.  int and larger types, as well as pointers, can be
+ * converted to a non-qualified type just by applying a binary operator.
+ */
+#define typeof_strip_qual(expr)                                                    \
+  typeof(                                                                          \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), bool) ||                          \
+        __builtin_types_compatible_p(typeof(expr), const bool) ||                  \
+        __builtin_types_compatible_p(typeof(expr), volatile bool) ||               \
+        __builtin_types_compatible_p(typeof(expr), const volatile bool),           \
+        (bool)1,                                                                   \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), signed char) ||                   \
+        __builtin_types_compatible_p(typeof(expr), const signed char) ||           \
+        __builtin_types_compatible_p(typeof(expr), volatile signed char) ||        \
+        __builtin_types_compatible_p(typeof(expr), const volatile signed char),    \
+        (signed char)1,                                                            \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), unsigned char) ||                 \
+        __builtin_types_compatible_p(typeof(expr), const unsigned char) ||         \
+        __builtin_types_compatible_p(typeof(expr), volatile unsigned char) ||      \
+        __builtin_types_compatible_p(typeof(expr), const volatile unsigned char),  \
+        (unsigned char)1,                                                          \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), signed short) ||                  \
+        __builtin_types_compatible_p(typeof(expr), const signed short) ||          \
+        __builtin_types_compatible_p(typeof(expr), volatile signed short) ||       \
+        __builtin_types_compatible_p(typeof(expr), const volatile signed short),   \
+        (signed short)1,                                                           \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), unsigned short) ||                \
+        __builtin_types_compatible_p(typeof(expr), const unsigned short) ||        \
+        __builtin_types_compatible_p(typeof(expr), volatile unsigned short) ||     \
+        __builtin_types_compatible_p(typeof(expr), const volatile unsigned short), \
+        (unsigned short)1,                                                         \
+      (expr)+0))))))
 
 #ifdef __ATOMIC_RELAXED
 /* For C11 atomic ops */
@@ -56,7 +96,7 @@
 #define atomic_read(ptr)                              \
     ({                                                \
     QEMU_BUILD_BUG_ON(sizeof(*ptr) > sizeof(void *)); \
-    typeof(*ptr) _val;                                \
+    typeof_strip_qual(*ptr) _val;                     \
      __atomic_load(ptr, &_val, __ATOMIC_RELAXED);     \
     _val;                                             \
     })
@@ -82,7 +122,7 @@
 #define atomic_rcu_read(ptr)                          \
     ({                                                \
     QEMU_BUILD_BUG_ON(sizeof(*ptr) > sizeof(void *)); \
-    typeof(*ptr) _val;                                \
+    typeof_strip_qual(*ptr) _val;                     \
     atomic_rcu_read__nocheck(ptr, &_val);             \
     _val;                                             \
     })
@@ -105,7 +145,7 @@
 #define atomic_mb_read(ptr)                             \
     ({                                                  \
     QEMU_BUILD_BUG_ON(sizeof(*ptr) > sizeof(void *));   \
-    typeof(*ptr) _val;                                  \
+    typeof_strip_qual(*ptr) _val;                       \
      __atomic_load(ptr, &_val, __ATOMIC_RELAXED);       \
      smp_rmb();                                         \
     _val;                                               \
@@ -122,7 +162,7 @@
 #define atomic_mb_read(ptr)                             \
     ({                                                  \
     QEMU_BUILD_BUG_ON(sizeof(*ptr) > sizeof(void *));   \
-    typeof(*ptr) _val;                                  \
+    typeof_strip_qual(*ptr) _val;                       \
     __atomic_load(ptr, &_val, __ATOMIC_SEQ_CST);        \
     _val;                                               \
     })
@@ -139,7 +179,7 @@
 
 #define atomic_xchg(ptr, i)    ({                           \
     QEMU_BUILD_BUG_ON(sizeof(*ptr) > sizeof(void *));       \
-    typeof(*ptr) _new = (i), _old;                          \
+    typeof_strip_qual(*ptr) _new = (i), _old;               \
     __atomic_exchange(ptr, &_new, &_old, __ATOMIC_SEQ_CST); \
     _old;                                                   \
 })
@@ -148,7 +188,7 @@
 #define atomic_cmpxchg(ptr, old, new)                                   \
     ({                                                                  \
     QEMU_BUILD_BUG_ON(sizeof(*ptr) > sizeof(void *));                   \
-    typeof(*ptr) _old = (old), _new = (new);                            \
+    typeof_strip_qual(*ptr) _old = (old), _new = (new);                 \
     __atomic_compare_exchange(ptr, &_old, &_new, false,                 \
                               __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);      \
     _old;                                                               \
@@ -366,4 +406,4 @@
 #define atomic_or(ptr, n)      ((void) __sync_fetch_and_or(ptr, n))
 
 #endif /* __ATOMIC_RELAXED */
-#endif /* __QEMU_ATOMIC_H */
+#endif /* QEMU_ATOMIC_H */

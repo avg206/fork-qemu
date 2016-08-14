@@ -190,6 +190,9 @@ static void xen_ram_init(PCMachineState *pcms,
     /* Handle the machine opt max-ram-below-4g.  It is basically doing
      * min(xen limit, user limit).
      */
+    if (!user_lowmem) {
+        user_lowmem = HVM_BELOW_4G_RAM_END; /* default */
+    }
     if (HVM_BELOW_4G_RAM_END <= user_lowmem) {
         user_lowmem = HVM_BELOW_4G_RAM_END;
     }
@@ -1315,9 +1318,7 @@ void xen_hvm_init(PCMachineState *pcms, MemoryRegion **ram_memory)
         error_report("xen backend core setup failed");
         goto err;
     }
-    xen_be_register("console", &xen_console_ops);
-    xen_be_register("vkbd", &xen_kbdmouse_ops);
-    xen_be_register("qdisk", &xen_blkdev_ops);
+    xen_be_register_common();
     xen_read_physmap(state);
     return;
 

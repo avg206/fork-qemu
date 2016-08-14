@@ -27,9 +27,10 @@
 #include "hw/compat.h"
 #include "ipl.h"
 #include "hw/s390x/s390-virtio-ccw.h"
+#include "hw/s390x/css-bridge.h"
 
 static const char *const reset_dev_types[] = {
-    "virtual-css-bridge",
+    TYPE_VIRTUAL_CSS_BRIDGE,
     "s390-sclp-event-facility",
     "s390-flic",
     "diag288",
@@ -180,10 +181,8 @@ static HotplugHandler *s390_get_hotplug_handler(MachineState *machine,
 static void s390_hot_add_cpu(const int64_t id, Error **errp)
 {
     MachineState *machine = MACHINE(qdev_get_machine());
-    Error *err = NULL;
 
-    s390x_new_cpu(machine->cpu_model, id, &err);
-    error_propagate(errp, err);
+    s390x_new_cpu(machine->cpu_model, id, errp);
 }
 
 static void ccw_machine_class_init(ObjectClass *oc, void *data)
@@ -322,6 +321,10 @@ static const TypeInfo ccw_machine_info = {
         {\
             .driver   = TYPE_S390_IPL,\
             .property = "iplbext_migration",\
+            .value    = "off",\
+        }, {\
+            .driver   = TYPE_VIRTUAL_CSS_BRIDGE,\
+            .property = "css_dev_path",\
             .value    = "off",\
         },
 

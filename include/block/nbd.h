@@ -77,6 +77,7 @@ enum {
 
 /* Maximum size of a single READ/WRITE data buffer */
 #define NBD_MAX_BUFFER_SIZE (32 * 1024 * 1024)
+
 /* Maximum size of an export name. The NBD spec requires 256 and
  * suggests that servers support up to 4096, but we stick to only the
  * required size so that we can stack-allocate the names, and because
@@ -87,14 +88,13 @@ enum {
 ssize_t nbd_wr_syncv(QIOChannel *ioc,
                      struct iovec *iov,
                      size_t niov,
-                     size_t offset,
                      size_t length,
                      bool do_read);
-int nbd_receive_negotiate(QIOChannel *ioc, const char *name, uint32_t *flags,
+int nbd_receive_negotiate(QIOChannel *ioc, const char *name, uint16_t *flags,
                           QCryptoTLSCreds *tlscreds, const char *hostname,
                           QIOChannel **outioc,
                           off_t *size, Error **errp);
-int nbd_init(int fd, QIOChannelSocket *sioc, uint32_t flags, off_t size);
+int nbd_init(int fd, QIOChannelSocket *sioc, uint16_t flags, off_t size);
 ssize_t nbd_send_request(QIOChannel *ioc, struct nbd_request *request);
 ssize_t nbd_receive_reply(QIOChannel *ioc, struct nbd_reply *reply);
 int nbd_client(int fd);
@@ -104,7 +104,7 @@ typedef struct NBDExport NBDExport;
 typedef struct NBDClient NBDClient;
 
 NBDExport *nbd_export_new(BlockBackend *blk, off_t dev_offset, off_t size,
-                          uint32_t nbdflags, void (*close)(NBDExport *),
+                          uint16_t nbdflags, void (*close)(NBDExport *),
                           Error **errp);
 void nbd_export_close(NBDExport *exp);
 void nbd_export_get(NBDExport *exp);

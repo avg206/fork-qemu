@@ -246,12 +246,20 @@ static void backup_abort(BlockJob *job)
     }
 }
 
+static void backup_attached_aio_context(BlockJob *job, AioContext *aio_context)
+{
+    BackupBlockJob *s = container_of(job, BackupBlockJob, common);
+
+    blk_set_aio_context(s->target, aio_context);
+}
+
 static const BlockJobDriver backup_job_driver = {
-    .instance_size  = sizeof(BackupBlockJob),
-    .job_type       = BLOCK_JOB_TYPE_BACKUP,
-    .set_speed      = backup_set_speed,
-    .commit         = backup_commit,
-    .abort          = backup_abort,
+    .instance_size          = sizeof(BackupBlockJob),
+    .job_type               = BLOCK_JOB_TYPE_BACKUP,
+    .set_speed              = backup_set_speed,
+    .commit                 = backup_commit,
+    .abort                  = backup_abort,
+    .attached_aio_context   = backup_attached_aio_context,
 };
 
 static BlockErrorAction backup_error_action(BackupBlockJob *job,
@@ -392,9 +400,7 @@ static void coroutine_fn backup_run(void *opaque)
         while (!block_job_is_cancelled(&job->common)) {
             /* Yield until the job is cancelled.  We just let our before_write
              * notify callback service CoW requests. */
-            job->common.busy = false;
-            qemu_coroutine_yield();
-            job->common.busy = true;
+            block_job_yield(&job->common);
         }
     } else if (job->sync_mode == MIRROR_SYNC_MODE_INCREMENTAL) {
         ret = backup_run_incremental(job);
@@ -468,9 +474,9 @@ static void coroutine_fn backup_run(void *opaque)
     block_job_defer_to_main_loop(&job->common, backup_complete, data);
 }
 
-void backup_start(BlockDriverState *bs, BlockDriverState *target,
-                  int64_t speed, MirrorSyncMode sync_mode,
-                  BdrvDirtyBitmap *sync_bitmap,
+void backup_start(const char *job_id, BlockDriverState *bs,
+                  BlockDriverState *target, int64_t speed,
+                  MirrorSyncMode sync_mode, BdrvDirtyBitmap *sync_bitmap,
                   BlockdevOnError on_source_error,
                   BlockdevOnError on_target_error,
                   BlockCompletionFunc *cb, void *opaque,
@@ -483,7 +489,6 @@ void backup_start(BlockDriverState *bs, BlockDriverState *target,
 
     assert(bs);
     assert(target);
-    assert(cb);
 
     if (bs == target) {
         error_setg(errp, "Source and target cannot be the same");
@@ -536,7 +541,8 @@ void backup_start(BlockDriverState *bs, BlockDriverState *target,
         goto error;
     }
 
-    job = block_job_create(&backup_job_driver, bs, speed, cb, opaque, errp);
+    job = block_job_create(job_id, &backup_job_driver, bs, speed,
+                           cb, opaque, errp);
     if (!job) {
         goto error;
     }
@@ -570,9 +576,9 @@ void backup_start(BlockDriverState *bs, BlockDriverState *target,
 
     bdrv_op_block_all(target, job->common.blocker);
     job->common.len = len;
-    job->common.co = qemu_coroutine_create(backup_run);
+    job->common.co = qemu_coroutine_create(backup_run, job);
     block_job_txn_add_job(txn, &job->common);
-    qemu_coroutine_enter(job->common.co, job);
+    qemu_coroutine_enter(job->common.co);
     return;
 
  error:
