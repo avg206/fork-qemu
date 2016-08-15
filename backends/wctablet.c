@@ -43,7 +43,7 @@ do { fprintf(stderr, fmt , ## __VA_ARGS__); } while (0)
 do {} while (0)
 #endif
 
-#define WC_COMMANDS_COUNT 21
+#define WC_COMMANDS_COUNT 30
 
 #define WC_BUSY_STATE 1
 #define WC_BUSY_WITH_CODES 3
@@ -59,28 +59,30 @@ do {} while (0)
 #define WC_H4(n) (((n) >> 4) & 15)
 
 // Avaliable commands
-uint8_t wctablet_commands[WC_COMMANDS_COUNT][6] = {
-    {0x0a, 0x53, 0x50, 0x0a, 0},         // \nSP\n
-    {0x7e, 0x23, 0},                     // ~#
-    {0x0a, 0x54, 0x45, 0x0a, 0},         // \nTE\n
-    {0x52, 0x45, 0x0a, 0},               // RE\n
-    {0x41, 0x53, 0x31, 0x0a, 0},         // AS1\n
-    {0x49, 0x43, 0x31, 0x0a, 0},         // IC1\n
-    {0x4f, 0x43, 0x31, 0x0a, 0},         // OC1\n
-    {0x49, 0x54, 0x88, 0x0d, 0},         // IT3\n
-    {0x53, 0x55, 0x88, 0x0d, 0},         // SU3\n
-    {0x50, 0x48, 0x31, 0x0a, 0},         // PH1\n
-    {0x0d, 0x53, 0x54, 0x0d, 0},         // \rST\n
-    {0x0d, 0x53, 0x50, 0x0d, 0},         // \rSP\r
-    {0x54, 0x45, 0x0d, 0},               // TE\r
-    {0x53, 0x50, 0x0a, 0},               // SP\n
-    {0x23, 0x41, 0x4c, 0x31, 0x0d, 0},   // #AL1\r
-    {0x53, 0x54, 0x0d, 0},               // ST\n
-    {0x0d, 0x54, 0x53, 0x88, 0xd, 0}     // \rTS&\r
+uint8_t wctablet_commands[WC_COMMANDS_COUNT][7] = {
+    {0x0a, 0x53, 0x50, 0x0a, 0},                // \nSP\n
+    {0x7e, 0x23, 0},                            // ~#
+    {0x0a, 0x54, 0x45, 0x0a, 0},                // \nTE\n
+    {0x52, 0x45, 0x0a, 0},                      // RE\n
+    {0x41, 0x53, 0x31, 0x0a, 0},                // AS1\n
+    {0x49, 0x43, 0x31, 0x0a, 0},                // IC1\n
+    {0x4f, 0x43, 0x31, 0x0a, 0},                // OC1\n
+    {0x49, 0x54, 0x88, 0x88, 0},                // IT3\r
+    {0x53, 0x55, 0x88, 0x88, 0},                // SU3\n
+    {0x50, 0x48, 0x31, 0x0a, 0},                // PH1\n
+    {0x0d, 0x53, 0x54, 0x0d, 0},                // \rST\n
+    {0x0d, 0x53, 0x50, 0x0d, 0},                // \rSP\r
+    {0x54, 0x45, 0x0d, 0},                      // TE\r
+    {0x53, 0x50, 0x88, 0},                      // SP\n
+    {0x23, 0x41, 0x4c, 0x31, 0x0d, 0},          // #AL1\r
+    {0x53, 0x54, 0x88, 0},                      // ST\n
+    {0x0d, 0x54, 0x53, 0x88, 0xd, 0},           // \rTS&\r
+    {0x0d, 0x0a, 0x53, 0x50, 0x0d, 0x0a, 0},    // \r\nSP\r\n
+    {0x7e, 0x23, 0x0d, 0}                       // ~#\r
 };
 
 // Char strings with avaliable commands
-char wctablet_commands_names[WC_COMMANDS_COUNT][7] = {
+char wctablet_commands_names[WC_COMMANDS_COUNT][12] = {
     "\\nSP\\n",
     "~#",
     "\\nTE\\n",
@@ -88,7 +90,7 @@ char wctablet_commands_names[WC_COMMANDS_COUNT][7] = {
     "AS1\\n",
     "IC1\\n",
     "OC1\\n",
-    "IT3\\n",
+    "IT3\\r",
     "SU3\\n",
     "PH1\\n",
     "\\rST\\n",
@@ -97,7 +99,9 @@ char wctablet_commands_names[WC_COMMANDS_COUNT][7] = {
     "SP\\n",
     "#AL1\\r",
     "ST\\n",
-    "\\rTS&\\r"
+    "\\rTS&\\r",
+    "\\r\\nSP\\r\\n",
+    "~#\\r"
 };
 
 // Model string and config string
@@ -177,25 +181,33 @@ static void wctablet_event(void *opaque, int x,
     // uint8_t codes[8] = { 0xe0, 0x05, 0x6a, 0x00, 0x06, 0x64, 0x40 };
     // uint8_t codes[8] = { 0xa0, 0x1c, 0x29, 0x00, 0x19, 0x1c, 0x00 };
 
-    // DPRINTF("x= %d; y= %d; buttons=%x\n", x, y, buttons_state);
+    DPRINTF("x= %d; y= %d; buttons=%x\n", x, y, buttons_state);
+    int newX = x * 0.1537;
+    int nexY = y * 0.1152;
 
-    codes[0] = codes[0] | WC_H2(x);
-    codes[1] = codes[1] | WC_M7(x);
-    codes[2] = codes[2] | WC_L7(x);
+    codes[0] = codes[0] | WC_H2(newX);
+    codes[1] = codes[1] | WC_M7(newX);
+    codes[2] = codes[2] | WC_L7(newX);
 
-    codes[3] = codes[3] | WC_H2(y);
-    codes[4] = codes[4] | WC_M7(y);
-    codes[5] = codes[5] | WC_L7(y);
+    codes[3] = codes[3] | WC_H2(nexY);
+    codes[4] = codes[4] | WC_M7(nexY);
+    codes[5] = codes[5] | WC_L7(nexY);
 
-    memcpy(save->outbuf + save->outlen, codes, 7);
-    save->outlen += 7;
+    if (buttons_state == 0x01) {
+        codes[0] = 0xa0;
+    }
+
+    if (save->outlen + 7 < WC_OUTPUT_BUF_MAX_LEN) {
+        memcpy(save->outbuf + save->outlen, codes, 7);
+        save->outlen += 7;
+    }
 }
 
 static void wctablet_handler(void *opaque)
 {
     CharDriverState *chr = (CharDriverState *) opaque;
     wctablet_save *save = (wctablet_save *) chr->opaque;
-    int len, i, canWrite;
+    int len, canWrite; // , i;
 
     canWrite = qemu_chr_be_can_write(chr);
     len = canWrite;
@@ -204,11 +216,11 @@ static void wctablet_handler(void *opaque)
     }
 
     if (len) {
-        DPRINTF("-------- Write %2d: ", canWrite);
-        for (i = 0; i < len; i++) {
-            DPRINTF(" %02x", save->outbuf[i]); 
-        }
-        DPRINTF("\n");
+        // DPRINTF("-------- Write %2d: ", canWrite);
+        // for (i = 0; i < len; i++) {
+        //     DPRINTF(" %02x", save->outbuf[i]); 
+        // }
+        // DPRINTF("\n");
 
         qemu_chr_be_write(chr, save->outbuf, len);
         save->outlen -= len;
@@ -228,9 +240,13 @@ static int wctablet_chr_write (struct CharDriverState *s,
     uint8_t c = buf[0];
     uint8_t input;
 
+    if (c == 0x40) {
+        return len;
+    }
+
     save->query[save->query_index++] = c;
 
-    DPRINTF("Receive: %.2x\n", c);
+    // DPRINTF("Receive: %.2x\n", c);
 
     int comm = wctablet_check_command(save->query, save->query_index);
 
@@ -249,14 +265,10 @@ static int wctablet_chr_write (struct CharDriverState *s,
             save->outlen += WC_CONFIG_STRING_LENGTH;
         }
 
-        // if (comm == 7) {
-        //     uint8_t codes[20] = {
-        //         0xa1, 0x20, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x18,
-        //         0xa1, 0x20, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x82, 0x18
-        //     };
-        //     memcpy(save->outbuf + save->outlen, codes, 20);
-        //     save->outlen += 20;
-        // }
+        if (comm == 18) {
+            memcpy(save->outbuf + save->outlen, WC_FULL_CONFIG_STRING, WC_FULL_CONFIG_STRING_LENGTH);
+            save->outlen += WC_FULL_CONFIG_STRING_LENGTH;
+        }
 
         if (comm == 16) {
             input = save->query[3];
@@ -274,29 +286,12 @@ static int wctablet_chr_write (struct CharDriverState *s,
 
             memcpy(save->outbuf + save->outlen, codes, 7);
             save->outlen += 7;
-            // 
-            // if (save->query[3] == 0x5f) {
-            //     uint8_t codes[7] = { 0xa3, 0x7e, 0x08, 0x03, 0x7f, 0x7f, 0x00 }; // 0x5f
-            //     memcpy(save->outbuf + save->outlen, codes, 7);
-            // } else if (save->query[3] == 0x95) {
-            //     uint8_t codes[7] = { 0xa3, 0x7f, 0x42, 0x03, 0x7f, 0x7f, 0x00 }; // 0x95
-            //     memcpy(save->outbuf + save->outlen, codes, 7);
-            // } else if (save->query[3] == 0xcc) {
-            //     uint8_t codes[7] = { 0xa3, 0x7f, 0x1b, 0x03, 0x7f, 0x7f, 0x00 }; // 0xcc
-            //     memcpy(save->outbuf + save->outlen, codes, 7);
-            // } else if (save->query[3] == 0xf1) {
-            //     uint8_t codes[7] = { 0xa3, 0x7f, 0x26, 0x03, 0x7f, 0x7f, 0x00 }; // 0xf1
-            //     memcpy(save->outbuf + save->outlen, codes, 7);
-            // } else { // if (save->query[3] == 0x28) {
-            //     uint8_t codes[7] = { 0xa3, 0x7e, 0x7f, 0x03, 0x7f, 0x7f, 0x00 }; // 0x28
-            //     memcpy(save->outbuf + save->outlen, codes, 7);
-            // }
         }
         
 
         save->state = WC_BUSY_STATE;
 
-        DPRINTF("-------- Command: %s\n", wctablet_commands_names[comm]);
+        // DPRINTF("-------- Command: %s\n", wctablet_commands_names[comm]);
 
         save->query_index = 0;
     }
