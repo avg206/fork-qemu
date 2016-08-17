@@ -121,15 +121,12 @@ uint8_t WC_FULL_CONFIG_STRING[61] = {
 };
 size_t WC_FULL_CONFIG_STRING_LENGTH = 61;
 int count = 0;
-int FIRST_SPEAD_1 = 7000 * 1000;
-int FIRST_SPEAD_2 = 8000 * 1000;
 int COMMON_SPEAD = 900 * 1000;
 
 
-
 // This structure is used to save private info for Wacom Tablet.
-typedef struct wctablet_save {
-        struct QEMUTimer *transmit_timer;
+typedef struct {
+    struct QEMUTimer *transmit_timer;
     /* QEMU timer */
     uint64_t transmit_time;
     /* time to transmit a char in ticks */
@@ -138,11 +135,8 @@ typedef struct wctablet_save {
     /* Query string from serial */
     uint8_t outbuf[WC_OUTPUT_BUF_MAX_LEN];
     int outlen;
-    
     /* Command to be sent to serial port */
-    int state;
-    /* State of current task */
-} wctablet_save;
+} TabletState;
 
 static int wctablet_memcmp(uint8_t *a1, uint8_t *a2, int count)
 {
@@ -153,7 +147,7 @@ static int wctablet_memcmp(uint8_t *a1, uint8_t *a2, int count)
             return -1;
         }
     }
-    
+
     return 0;
 }
 
@@ -175,7 +169,7 @@ static void wctablet_event(void *opaque, int x,
                            int y, int dz, int buttons_state)
 {
     CharDriverState *chr = (CharDriverState *) opaque;
-    wctablet_save *save = (wctablet_save *) chr->opaque;
+    TabletState *tablet = (TabletState *) chr->opaque;
     uint8_t codes[8] = { 0xe0, 0, 0, 0, 0, 0, 0 };
     // uint8_t codes[8] = { 0xa0, 0x0e, 0x06, 0x00, 0x13, 0x3b, 0x00 };
     // uint8_t codes[8] = { 0xe0, 0x05, 0x6a, 0x00, 0x06, 0x64, 0x40 };
@@ -197,46 +191,46 @@ static void wctablet_event(void *opaque, int x,
         codes[0] = 0xa0;
     }
 
-    if (save->outlen + 7 < WC_OUTPUT_BUF_MAX_LEN) {
-        memcpy(save->outbuf + save->outlen, codes, 7);
-        save->outlen += 7;
+    if (tablet->outlen + 7 < WC_OUTPUT_BUF_MAX_LEN) {
+        memcpy(tablet->outbuf + tablet->outlen, codes, 7);
+        tablet->outlen += 7;
     }
 }
 
 static void wctablet_handler(void *opaque)
 {
     CharDriverState *chr = (CharDriverState *) opaque;
-    wctablet_save *save = (wctablet_save *) chr->opaque;
+    TabletState *tablet = (TabletState *) chr->opaque;
     int len, canWrite; // , i;
 
     canWrite = qemu_chr_be_can_write(chr);
     len = canWrite;
-    if (len > save->outlen) {
-        len = save->outlen;
+    if (len > tablet->outlen) {
+        len = tablet->outlen;
     }
 
     if (len) {
         // DPRINTF("-------- Write %2d: ", canWrite);
         // for (i = 0; i < len; i++) {
-        //     DPRINTF(" %02x", save->outbuf[i]); 
+        //     DPRINTF(" %02x", tablet->outbuf[i]);
         // }
         // DPRINTF("\n");
 
-        qemu_chr_be_write(chr, save->outbuf, len);
-        save->outlen -= len;
-        if (save->outlen) {
-            memmove(save->outbuf, save->outbuf + len, save->outlen);
+        qemu_chr_be_write(chr, tablet->outbuf, len);
+        tablet->outlen -= len;
+        if (tablet->outlen) {
+            memmove(tablet->outbuf, tablet->outbuf + len, tablet->outlen);
         }
     }
 
-    timer_mod(save->transmit_timer,
-              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + save->transmit_time);
+    timer_mod(tablet->transmit_timer,
+              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + tablet->transmit_time);
 }
 
 static int wctablet_chr_write (struct CharDriverState *s,
                                const uint8_t *buf, int len)
 {
-    wctablet_save *save = (wctablet_save *) s->opaque;
+    TabletState *tablet = (TabletState *) s->opaque;
     uint8_t c = buf[0];
     uint8_t input;
 
@@ -244,11 +238,11 @@ static int wctablet_chr_write (struct CharDriverState *s,
         return len;
     }
 
-    save->query[save->query_index++] = c;
+    tablet->query[tablet->query_index++] = c;
 
     // DPRINTF("Receive: %.2x\n", c);
 
-    int comm = wctablet_check_command(save->query, save->query_index);
+    int comm = wctablet_check_command(tablet->query, tablet->query_index);
 
     if (comm == 1) {
         count++;
@@ -256,22 +250,22 @@ static int wctablet_chr_write (struct CharDriverState *s,
 
     if (comm != -1) {
         if (comm == 1 && count == 2) {
-            memcpy(save->outbuf + save->outlen, WC_MODEL_STRING, WC_MODEL_STRING_LENGTH);
-            save->outlen += WC_MODEL_STRING_LENGTH;
+            memcpy(tablet->outbuf + tablet->outlen, WC_MODEL_STRING, WC_MODEL_STRING_LENGTH);
+            tablet->outlen += WC_MODEL_STRING_LENGTH;
         }
 
         if (comm == 3) {
-            memcpy(save->outbuf + save->outlen, WC_CONFIG_STRING, WC_CONFIG_STRING_LENGTH);
-            save->outlen += WC_CONFIG_STRING_LENGTH;
+            memcpy(tablet->outbuf + tablet->outlen, WC_CONFIG_STRING, WC_CONFIG_STRING_LENGTH);
+            tablet->outlen += WC_CONFIG_STRING_LENGTH;
         }
 
         if (comm == 18) {
-            memcpy(save->outbuf + save->outlen, WC_FULL_CONFIG_STRING, WC_FULL_CONFIG_STRING_LENGTH);
-            save->outlen += WC_FULL_CONFIG_STRING_LENGTH;
+            memcpy(tablet->outbuf + tablet->outlen, WC_FULL_CONFIG_STRING, WC_FULL_CONFIG_STRING_LENGTH);
+            tablet->outlen += WC_FULL_CONFIG_STRING_LENGTH;
         }
 
         if (comm == 16) {
-            input = save->query[3];
+            input = tablet->query[3];
             uint8_t codes[7] = {
                 0xa3,
                 0x88,
@@ -284,16 +278,13 @@ static int wctablet_chr_write (struct CharDriverState *s,
             codes[1] = ((input & 0x80) == 0) ? 0x7e : 0x7f;
             codes[2] = ( ( ( WC_H4(input) & 0x7 ) ^ 0x5) << 4 ) | (WC_L4(input) ^ 0x7);
 
-            memcpy(save->outbuf + save->outlen, codes, 7);
-            save->outlen += 7;
+            memcpy(tablet->outbuf + tablet->outlen, codes, 7);
+            tablet->outlen += 7;
         }
-        
-
-        save->state = WC_BUSY_STATE;
 
         // DPRINTF("-------- Command: %s\n", wctablet_commands_names[comm]);
 
-        save->query_index = 0;
+        tablet->query_index = 0;
     }
 
     return len;
@@ -312,10 +303,10 @@ static CharDriverState *qemu_chr_open_wctablet(const char *id,
 {
     ChardevCommon *common = backend->u.wctablet.data;
     CharDriverState *chr;
-    wctablet_save *save;
+    TabletState *tablet;
 
     chr = qemu_chr_alloc(common, errp);
-    save = g_malloc0(sizeof(wctablet_save));
+    tablet = g_malloc0(sizeof(TabletState));
     if (!chr) {
         return NULL;
     }
@@ -324,24 +315,21 @@ static CharDriverState *qemu_chr_open_wctablet(const char *id,
     chr->explicit_be_open = true;
 
     /* create a new QEMU's timer with wctablet_handler() as timeout handler. */
-    save->transmit_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+    tablet->transmit_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                        (QEMUTimerCB *) wctablet_handler, chr);
 
-    /* calculate the transmit_time for 1200 bauds transmission */
-    save->transmit_time = COMMON_SPEAD; // (NANOSECONDS_PER_SECOND / 500) * 10; /* 1200 bauds */
+    tablet->transmit_time = COMMON_SPEAD;
 
-    timer_mod(save->transmit_timer,
-              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + save->transmit_time);
+    timer_mod(tablet->transmit_timer,
+              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + tablet->transmit_time);
 
 
     /* init state machine */
-    memcpy(save->outbuf, WC_FULL_CONFIG_STRING, WC_FULL_CONFIG_STRING_LENGTH);
-    save->outlen = WC_FULL_CONFIG_STRING_LENGTH;
-    save->query_index = 0;
-    save->state = WC_BUSY_STATE;
-    /* keep address of wctablet_save */
+    memcpy(tablet->outbuf, WC_FULL_CONFIG_STRING, WC_FULL_CONFIG_STRING_LENGTH);
+    tablet->outlen = WC_FULL_CONFIG_STRING_LENGTH;
+    tablet->query_index = 0;
 
-    chr->opaque = save;
+    chr->opaque = tablet;
 
     qemu_add_mouse_event_handler(wctablet_event, chr, 1,
                                  "QEMU Wacome Pen Tablet");
